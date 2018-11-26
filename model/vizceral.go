@@ -35,6 +35,12 @@ type Connection struct {
 
 type Metadata struct {
 	Streaming int `json:"streaming"`
+        Position  *Position `json:"position,omitempty"`
+}
+
+type Position struct {
+        X     float64 `json:"x,omitempty"`
+        Y     float64 `json:"y,omitempty"`
 }
 
 type Notice struct {

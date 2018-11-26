@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+        "sync"
 
+        "github.com/matche2100/gabs"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -174,4 +176,10 @@ func (nm *NodeMapping) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return fmt.Errorf("Invalid node mapping")
 	}
 	return nil
+}
+
+type PositionFile struct {
+       PositionData  *gabs.Container
+       Path      string
+       Mutex     sync.RWMutex
 }

@@ -30,6 +30,7 @@ type Options struct {
 	ScrapeInterval time.Duration
 	ScrapeTimeout  time.Duration
 	Appender       storage.Appender
+        PositionFile   *config.PositionFile
 }
 
 type retrieverMetrics struct {
@@ -185,6 +186,7 @@ func (r *retriever) retrieve(ctx context.Context, ts time.Time) (err error) {
 		logger:  r.logger,
 		cfg:     cfg,
 		querier: querier,
+                positionfile: r.options.PositionFile,
 	}
 
 	snapshot, err := g.generateSnapshot(ctx, ts)

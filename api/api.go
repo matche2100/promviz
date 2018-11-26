@@ -6,14 +6,17 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+        "os"
 
 	"github.com/nghialv/promviz/cache"
 	"github.com/nghialv/promviz/model"
 	"github.com/nghialv/promviz/storage"
+	"github.com/nghialv/promviz/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"go.uber.org/zap"
+        "github.com/matche2100/gabs"
 )
 
 var (
@@ -27,11 +30,14 @@ type Handler interface {
 	Reload() <-chan chan error
 }
 
+
 type Options struct {
 	ListenPort int
 	ConfigFile string
 	Cache      cache.Cache
 	Querier    storage.Querier
+
+        PositionFile *config.PositionFile
 }
 
 type apiMetrics struct {
@@ -111,6 +117,7 @@ func (h *handler) Run(g prometheus.Gatherer) error {
 	mux.HandleFunc("/graph", h.getGraphHandler)
 	mux.HandleFunc("/reload", h.reloadHandler)
 	mux.HandleFunc("/config", h.getConfigHandler)
+        mux.HandleFunc("/position", h.positionHandler)
 	mux.Handle("/metrics", promhttp.HandlerFor(g, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Alive"))
@@ -126,6 +133,45 @@ func (h *handler) Reload() <-chan chan error {
 func (h *handler) Stop() error {
 	h.logger.Info("Stopping api server...")
 	return nil
+}
+
+func (h *handler) positionHandler(w http.ResponseWriter, r *http.Request) {
+         if r.Method != http.MethodPost {
+                http.Error(w, fmt.Sprintf("Invalid request method"), http.StatusNotImplemented)
+                return
+         }
+         body, err := ioutil.ReadAll(r.Body)
+         if err != nil {
+                http.Error(w, err.Error(), 500)
+                return
+         }
+
+         parseJson, err := gabs.ParseJSON(body)
+         
+         if err != nil {
+                fmt.Print(err.Error())
+                http.Error(w, err.Error(), 500)
+                return
+         }
+         h.options.PositionFile.Mutex.Lock()
+
+         h.options.PositionFile.PositionData.MergeWithOverWrite(parseJson)
+         //h.options.PositionFile.PositionData = parseJson
+
+         file, err := os.OpenFile(h.options.PositionFile.Path,
+                                  os.O_WRONLY|os.O_CREATE, 0644)
+         if err != nil {
+
+             http.Error(w, err.Error(), 500)
+             file.Close()
+         }
+
+         fmt.Fprintln(file, h.options.PositionFile.PositionData.StringIndent("", "  "))
+         file.Close()
+
+         h.options.PositionFile.Mutex.Unlock()
+
+         return
 }
 
 func (h *handler) reloadHandler(w http.ResponseWriter, r *http.Request) {
@@ -232,3 +278,4 @@ func track(metrics *apiMetrics, handler string) func(*int) {
 		metrics.latency.WithLabelValues(handler, s).Observe(time.Since(start).Seconds())
 	}
 }
+

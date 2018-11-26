@@ -34,5 +34,5 @@
   version = "2.2.5"
 
 [[constraint]]
-  name = "gopkg.in/fsnotify.v1"
-  version = "1.4.2"
+  name = "github.com/fsnotify/fsnotify"
+  version = "master"

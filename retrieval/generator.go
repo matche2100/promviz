@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"time"
+        "sync"
 
 	"github.com/nghialv/promviz/config"
 	"github.com/nghialv/promviz/model"
@@ -16,9 +17,10 @@ import (
 )
 
 type generator struct {
-	logger  *zap.Logger
-	cfg     *config.Config
-	querier querier
+	logger        *zap.Logger
+	cfg           *config.Config
+	querier       querier
+        positionfile  *config.PositionFile
 }
 
 func (g *generator) generateSnapshot(ctx context.Context, ts time.Time) (*model.Snapshot, error) {
@@ -26,9 +28,11 @@ func (g *generator) generateSnapshot(ctx context.Context, ts time.Time) (*model.
 	var clusters *model.NodeConnectionSet
 	services := make(map[string]*model.NodeConnectionSet)
 	clusterMap := make(map[string]*config.Cluster, len(g.cfg.ClusterLevel))
+   
+        var servicesMutex sync.RWMutex
 
 	group.Go(func() error {
-		cs, err := g.generateNodeConnectionSet(groupCtx, g.cfg.GlobalLevel.Connections, nil, ts, newClusterNode)
+		cs, err := g.generateNodeConnectionSet(groupCtx, g.cfg.GlobalLevel.Connections, nil, ts, newClusterNode, "")
 		if err != nil {
 			return err
 		}
@@ -41,11 +45,13 @@ func (g *generator) generateSnapshot(ctx context.Context, ts time.Time) (*model.
 		clusterMap[cluster.Cluster] = cluster
 
 		group.Go(func() error {
-			ss, err := g.generateNodeConnectionSet(groupCtx, cluster.Connections, cluster.NodeNotices, ts, newServiceNode)
+			ss, err := g.generateNodeConnectionSet(groupCtx, cluster.Connections, cluster.NodeNotices, ts, newServiceNode, cluster.Cluster)
 			if err != nil {
 				return err
 			}
+                        servicesMutex.Lock()
 			services[cluster.Cluster] = ss
+                        servicesMutex.Unlock()
 			return nil
 		})
 	}
@@ -102,9 +108,10 @@ func (g *generator) generateSnapshot(ctx context.Context, ts time.Time) (*model.
 	return snapshot, nil
 }
 
-func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*config.Connection, cfgNotices []*config.NodeNotice, ts time.Time, nodeFactory func(string) *model.Node) (*model.NodeConnectionSet, error) {
+func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*config.Connection, cfgNotices []*config.NodeNotice, ts time.Time, nodeFactory func(string, string ,*config.PositionFile) *model.Node, parentNodeName string) (*model.NodeConnectionSet, error) {
 	group, groupCtx := errgroup.WithContext(ctx)
 	groupConns := make([]([]*model.Connection), len(cfgConns), len(cfgConns))
+        var groupConnsMutex sync.RWMutex
 
 	for i, cfgConn := range cfgConns {
 		i, cfgConn := i, cfgConn
@@ -123,12 +130,15 @@ func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*c
 				g.logger.Info("Unexpected type", zap.Any("value", value))
 				return nil
 			}
+                        groupConnsMutex.Lock()
 			groupConns[i] = g.generateConnections(vector, cfgConn)
+                        groupConnsMutex.Unlock()
 			return nil
 		})
 	}
 
 	groupNotices := make([](map[string][]*model.Notice), len(cfgNotices), len(cfgNotices))
+        var groupNoticesMutex sync.RWMutex
 
 	for i, cfgNoti := range cfgNotices {
 		i, cfgNoti := i, cfgNoti
@@ -148,7 +158,9 @@ func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*c
 				g.logger.Info("Unexpected type", zap.Any("value", value))
 				return nil
 			}
+                        groupNoticesMutex.Lock()
 			groupNotices[i] = g.generateNodeNotices(vector, cfgNoti)
+                        groupNoticesMutex.Unlock()
 			return nil
 		})
 	}
@@ -172,7 +184,7 @@ func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*c
 			}
 			for _, n := range ns {
 				if _, ok := nodeMap[n.Name]; !ok {
-					nodeMap[n.Name] = nodeFactory(n.Name)
+					nodeMap[n.Name] = nodeFactory(n.Name, parentNodeName, g.positionfile)
 				}
 				if n.Class != "" && (nodeMap[n.Name].Class == "" || nodeMap[n.Name].Class == "default") {
 					nodeMap[n.Name].Class = n.Class
@@ -180,7 +192,7 @@ func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*c
 			}
 		}
 	}
-
+        groupNoticesMutex.RLock()
 	for i := range groupNotices {
 		for k, noti := range groupNotices[i] {
 			if node, ok := nodeMap[k]; ok {
@@ -188,6 +200,7 @@ func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*c
 			}
 		}
 	}
+        groupNoticesMutex.RUnlock()
 
 	nodes := make([]*model.Node, 0, len(nodeMap))
 	for _, n := range nodeMap {
@@ -457,22 +470,104 @@ func calculateMaxVolume(nodes []*model.Node, connections []*model.Connection, ma
 	return float64(max) / maxVolumeRate
 }
 
-func newServiceNode(name string) *model.Node {
-	return &model.Node{
-		Name:     name,
-		Renderer: "focusedChild",
-		Metadata: &model.Metadata{
-			Streaming: 1,
-		},
-	}
+func newServiceNode(name string, parent string, positionfile *config.PositionFile) *model.Node {
+
+        positiondata := positionfile.PositionData
+
+        positionfile.Mutex.RLock()
+        defer positionfile.Mutex.RUnlock()
+
+        if (parent == "") {
+           if (positiondata.Exists("Vizceral", name, "x") ||
+               positiondata.Exists("Vizceral", name, "y")) {
+                   return makeNodeObject(name, "focusedChild", 
+                       &model.Metadata{
+                             Streaming: 1,
+                             Position: &model.Position{
+                                    X: positiondata.S("Vizceral", name, "x").Data().(float64),
+                                    Y: positiondata.S("Vizceral", name, "y").Data().(float64),
+                             },
+                        })
+                             
+            } else {
+                    return makeNodeObject(name, "focusedChild",
+                        &model.Metadata{
+                             Streaming: 1,
+                        })
+            }
+        } else {
+           if (positiondata.Exists("Vizceral", parent, name, "x") ||
+               positiondata.Exists("Vizceral", parent, name, "y")) {
+                   return makeNodeObject(name, "focusedChild", 
+                       &model.Metadata{
+                             Streaming: 1,
+                             Position: &model.Position{
+                                    X: positiondata.S("Vizceral", parent, name, "x").Data().(float64),
+                                    Y: positiondata.S("Vizceral", parent, name, "y").Data().(float64),
+                             },
+                        })
+                             
+            } else {
+                    return makeNodeObject(name, "focusedChild",
+                        &model.Metadata{
+                             Streaming: 1,
+                        })
+            }
+        }
+              
 }
 
-func newClusterNode(name string) *model.Node {
-	return &model.Node{
-		Name:     name,
-		Renderer: "region",
-		Metadata: &model.Metadata{
-			Streaming: 1,
-		},
-	}
+func newClusterNode(name string, parent string, positionfile *config.PositionFile) *model.Node {
+
+        positiondata := positionfile.PositionData
+
+        positionfile.Mutex.RLock()
+        defer positionfile.Mutex.RUnlock()
+
+        if (parent == "") {
+           if (positiondata.Exists("Vizceral", name, "x") ||
+               positiondata.Exists("Vizceral", name, "y")) {
+                   return makeNodeObject(name, "region", 
+                       &model.Metadata{
+                             Streaming: 1,
+                             Position: &model.Position{
+                                    X: positiondata.S("Vizceral", name, "x").Data().(float64),
+                                    Y: positiondata.S("Vizceral", name, "y").Data().(float64),
+                             },
+                        })
+                             
+            } else {
+                    return makeNodeObject(name, "region",
+                        &model.Metadata{
+                             Streaming: 1,
+                        })
+            }
+        } else {
+           if (positiondata.Exists("Vizceral", parent, name, "x") ||
+               positiondata.Exists("Vizceral", parent, name, "y")) {
+                   return makeNodeObject(name, "focusedChild", 
+                       &model.Metadata{
+                             Streaming: 1,
+                             Position: &model.Position{
+                                    X: positiondata.S("Vizceral", parent, name, "x").Data().(float64),
+                                    Y: positiondata.S("Vizceral", parent, name, "y").Data().(float64),
+                             },
+                        })
+                             
+            } else {
+                    return makeNodeObject(name, "focusedChild",
+                        &model.Metadata{
+                             Streaming: 1,
+                        })
+            }
+        }
 }
+
+func makeNodeObject(name string, renderer string, metadata *model.Metadata) *model.Node {
+        return &model.Node{
+               Name:  name,
+               Renderer: renderer,
+               Metadata: metadata,
+        }
+}
+

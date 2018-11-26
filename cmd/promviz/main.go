@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+        "io/ioutil"
 
 	"github.com/nghialv/promviz/api"
 	"github.com/nghialv/promviz/cache"
@@ -16,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"gopkg.in/alecthomas/kingpin.v2"
+        "github.com/matche2100/gabs"
 )
 
 var (
@@ -31,6 +33,8 @@ func main() {
 		configFile  string
 		logLevel    string
 		storagePath string
+
+                positionFilePath string
 
 		api       api.Options
 		retrieval retrieval.Options
@@ -66,6 +70,9 @@ func main() {
 	a.Flag("storage.retention", "How long to retain graph data in the storage.").
 		Default("168h").DurationVar(&cfg.storage.Retention)
 
+        a.Flag("position.path", "FilePath for Position of nodes.").
+                Default("./position.json").StringVar(&cfg.positionFilePath)
+
 	_, err := a.Parse(os.Args[1:])
 	if err != nil {
 		fmt.Printf("Failed to parse arguments: %v\n", err)
@@ -79,6 +86,31 @@ func main() {
 		os.Exit(2)
 	}
 	defer logger.Sync()
+
+        PositionFile := new(config.PositionFile)
+        PositionFile.Path = cfg.positionFilePath
+
+
+        go func(){
+
+           positionfiledata, err := ioutil.ReadFile(PositionFile.Path)
+           positiondata := gabs.New()
+           
+           if err != nil {
+               logger.Info("PositionFile not found. Create New File.")
+           } else {
+               positiondata2, err := gabs.ParseJSON(positionfiledata)
+               if err == nil {
+                     logger.Info("PositionFile parsing success.")
+                     positiondata.Merge(positiondata2) 
+               } else {
+                     logger.Info("PositionFile parsing failure. Blank start.")
+               }
+           }
+
+           PositionFile.PositionData = positiondata
+
+        }()
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
@@ -108,6 +140,8 @@ func main() {
 	cfg.api.Querier = db
 	cfg.retrieval.Appender = db
 
+        cfg.retrieval.PositionFile = PositionFile
+
 	retriever := retrieval.NewRetriever(
 		logger.With(zap.String("component", "retrieval")),
 		registry,
@@ -129,6 +163,9 @@ func main() {
 	defer cache.Reset()
 
 	cfg.api.Cache = cache
+
+        cfg.api.PositionFile = PositionFile
+
 	apiHandler := api.NewHandler(
 		logger.With(zap.String("component", "api")),
 		registry,

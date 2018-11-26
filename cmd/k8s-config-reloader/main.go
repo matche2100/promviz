@@ -13,7 +13,8 @@ import (
 	"github.com/cenkalti/backoff"
 	"go.uber.org/zap"
 	"gopkg.in/alecthomas/kingpin.v2"
-	fsnotify "gopkg.in/fsnotify.v1"
+	//fsnotify "gopkg.in/fsnotify.v1"
+        "github.com/fsnotify/fsnotify"
 )
 
 var (
