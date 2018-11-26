@@ -10,6 +10,7 @@ Promviz is configured via command-line flags and a configuration file.
 - `--cache.size` The maximum number of snapshots can be cached. Default is `100`.
 - `--storage.path` Base path of local storage for graph data. Default is `/promviz`.
 - `--storage.retention` How long to retain graph data in the storage. Default is `168h`.
+- `--position.path` Filepath for position of Nodes, Default `position.json`.
 
 ### Configuration file
 
