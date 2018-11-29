@@ -111,6 +111,8 @@ func (h *handler) Run(g prometheus.Gatherer) error {
 
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
+                AllowedMethods: []string{"GET","POST","OPTIONS","DELETE"},
+                Debug: false,
 	})
 
 	mux := http.NewServeMux()
@@ -136,42 +138,99 @@ func (h *handler) Stop() error {
 }
 
 func (h *handler) positionHandler(w http.ResponseWriter, r *http.Request) {
-         if r.Method != http.MethodPost {
-                http.Error(w, fmt.Sprintf("Invalid request method"), http.StatusNotImplemented)
-                return
-         }
-         body, err := ioutil.ReadAll(r.Body)
-         if err != nil {
+
+         if r.Method == http.MethodPost {
+
+           body, err := ioutil.ReadAll(r.Body)
+           if err != nil {
                 http.Error(w, err.Error(), 500)
                 return
-         }
+           }
 
-         parseJson, err := gabs.ParseJSON(body)
+           parseJson, err := gabs.ParseJSON(body)
          
-         if err != nil {
+           if err != nil {
                 fmt.Print(err.Error())
                 http.Error(w, err.Error(), 500)
                 return
-         }
-         h.options.PositionFile.Mutex.Lock()
+           }
+           h.options.PositionFile.Mutex.Lock()
 
-         h.options.PositionFile.PositionData.MergeWithOverWrite(parseJson)
-         //h.options.PositionFile.PositionData = parseJson
+           h.options.PositionFile.PositionData.MergeWithOverWrite(parseJson)
 
-         file, err := os.OpenFile(h.options.PositionFile.Path,
-                                  os.O_WRONLY|os.O_CREATE, 0644)
-         if err != nil {
+           file, err := os.OpenFile(h.options.PositionFile.Path,
+                                  os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+           if err != nil {
 
-             http.Error(w, err.Error(), 500)
-             file.Close()
-         }
+               http.Error(w, err.Error(), 500)
+               file.Close()
+           }
 
-         fmt.Fprintln(file, h.options.PositionFile.PositionData.StringIndent("", "  "))
-         file.Close()
+           fmt.Fprintln(file, h.options.PositionFile.PositionData.StringIndent("", "  "))
+           file.Close()
 
-         h.options.PositionFile.Mutex.Unlock()
+           h.options.PositionFile.Mutex.Unlock()
 
-         return
+           return
+
+        } else if  r.Method == http.MethodDelete {
+
+           body, err := ioutil.ReadAll(r.Body)
+           if err != nil {
+                http.Error(w, err.Error(), 400)
+                return
+           }
+
+           parseJson, err := gabs.ParseJSON(body)
+         
+           if err != nil {
+                fmt.Print(err.Error())
+                http.Error(w, err.Error(), 400)
+                return
+           }
+
+           targetPath, ok := parseJson.S("Path").Data().(string)
+
+           if !ok {
+
+                fmt.Print(err.Error())
+                http.Error(w, err.Error(), 400)
+                return
+           }
+           
+           h.options.PositionFile.Mutex.Lock()
+
+           children, _ := h.options.PositionFile.PositionData.Path(targetPath).ChildrenMap()
+           for key, _ := range children {
+
+                if (key == "x") || (key == "y") { continue }
+
+                h.options.PositionFile.PositionData.DeleteP(targetPath + "." + key + ".x" )
+                h.options.PositionFile.PositionData.DeleteP(targetPath + "." + key + ".y" )
+
+           }
+
+           file, err := os.OpenFile(h.options.PositionFile.Path,
+                                  os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+           if err != nil {
+
+               http.Error(w, err.Error(), 500)
+               file.Close()
+           }
+
+           fmt.Fprintln(file, h.options.PositionFile.PositionData.StringIndent("", "  "))
+           file.Close()
+
+           h.options.PositionFile.Mutex.Unlock()
+
+           return
+
+        } else {
+
+            http.Error(w, fmt.Sprintf("Invalid request method"), http.StatusNotImplemented)
+            return
+        }
+
 }
 
 func (h *handler) reloadHandler(w http.ResponseWriter, r *http.Request) {

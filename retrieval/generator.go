@@ -108,7 +108,7 @@ func (g *generator) generateSnapshot(ctx context.Context, ts time.Time) (*model.
 	return snapshot, nil
 }
 
-func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*config.Connection, cfgNotices []*config.NodeNotice, ts time.Time, nodeFactory func(string, string ,*config.PositionFile) *model.Node, parentNodeName string) (*model.NodeConnectionSet, error) {
+func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*config.Connection, cfgNotices []*config.NodeNotice, ts time.Time, nodeFactory func(string, string, string, *config.PositionFile) *model.Node, parentNodeName string) (*model.NodeConnectionSet, error) {
 	group, groupCtx := errgroup.WithContext(ctx)
 	groupConns := make([]([]*model.Connection), len(cfgConns), len(cfgConns))
         var groupConnsMutex sync.RWMutex
@@ -184,7 +184,7 @@ func (g *generator) generateNodeConnectionSet(ctx context.Context, cfgConns []*c
 			}
 			for _, n := range ns {
 				if _, ok := nodeMap[n.Name]; !ok {
-					nodeMap[n.Name] = nodeFactory(n.Name, parentNodeName, g.positionfile)
+					nodeMap[n.Name] = nodeFactory(n.Name, parentNodeName, g.cfg.GraphName, g.positionfile)
 				}
 				if n.Class != "" && (nodeMap[n.Name].Class == "" || nodeMap[n.Name].Class == "default") {
 					nodeMap[n.Name].Class = n.Class
@@ -470,7 +470,7 @@ func calculateMaxVolume(nodes []*model.Node, connections []*model.Connection, ma
 	return float64(max) / maxVolumeRate
 }
 
-func newServiceNode(name string, parent string, positionfile *config.PositionFile) *model.Node {
+func newServiceNode(name string, parent string, graphname string, positionfile *config.PositionFile) *model.Node {
 
         positiondata := positionfile.PositionData
 
@@ -478,14 +478,14 @@ func newServiceNode(name string, parent string, positionfile *config.PositionFil
         defer positionfile.Mutex.RUnlock()
 
         if (parent == "") {
-           if (positiondata.Exists("Vizceral", name, "x") ||
-               positiondata.Exists("Vizceral", name, "y")) {
+           if (positiondata.Exists(graphname, name, "x") ||
+               positiondata.Exists(graphname, name, "y")) {
                    return makeNodeObject(name, "focusedChild", 
                        &model.Metadata{
                              Streaming: 1,
                              Position: &model.Position{
-                                    X: positiondata.S("Vizceral", name, "x").Data().(float64),
-                                    Y: positiondata.S("Vizceral", name, "y").Data().(float64),
+                                    X: positiondata.S(graphname, name, "x").Data().(float64),
+                                    Y: positiondata.S(graphname, name, "y").Data().(float64),
                              },
                         })
                              
@@ -496,14 +496,14 @@ func newServiceNode(name string, parent string, positionfile *config.PositionFil
                         })
             }
         } else {
-           if (positiondata.Exists("Vizceral", parent, name, "x") ||
-               positiondata.Exists("Vizceral", parent, name, "y")) {
+           if (positiondata.Exists(graphname, parent, name, "x") ||
+               positiondata.Exists(graphname, parent, name, "y")) {
                    return makeNodeObject(name, "focusedChild", 
                        &model.Metadata{
                              Streaming: 1,
                              Position: &model.Position{
-                                    X: positiondata.S("Vizceral", parent, name, "x").Data().(float64),
-                                    Y: positiondata.S("Vizceral", parent, name, "y").Data().(float64),
+                                    X: positiondata.S(graphname, parent, name, "x").Data().(float64),
+                                    Y: positiondata.S(graphname, parent, name, "y").Data().(float64),
                              },
                         })
                              
@@ -517,7 +517,7 @@ func newServiceNode(name string, parent string, positionfile *config.PositionFil
               
 }
 
-func newClusterNode(name string, parent string, positionfile *config.PositionFile) *model.Node {
+func newClusterNode(name string, parent string, graphname string, positionfile *config.PositionFile) *model.Node {
 
         positiondata := positionfile.PositionData
 
@@ -525,14 +525,14 @@ func newClusterNode(name string, parent string, positionfile *config.PositionFil
         defer positionfile.Mutex.RUnlock()
 
         if (parent == "") {
-           if (positiondata.Exists("Vizceral", name, "x") ||
-               positiondata.Exists("Vizceral", name, "y")) {
+           if (positiondata.Exists(graphname, name, "x") ||
+               positiondata.Exists(graphname, name, "y")) {
                    return makeNodeObject(name, "region", 
                        &model.Metadata{
                              Streaming: 1,
                              Position: &model.Position{
-                                    X: positiondata.S("Vizceral", name, "x").Data().(float64),
-                                    Y: positiondata.S("Vizceral", name, "y").Data().(float64),
+                                    X: positiondata.S(graphname, name, "x").Data().(float64),
+                                    Y: positiondata.S(graphname, name, "y").Data().(float64),
                              },
                         })
                              
@@ -543,14 +543,14 @@ func newClusterNode(name string, parent string, positionfile *config.PositionFil
                         })
             }
         } else {
-           if (positiondata.Exists("Vizceral", parent, name, "x") ||
-               positiondata.Exists("Vizceral", parent, name, "y")) {
+           if (positiondata.Exists(graphname, parent, name, "x") ||
+               positiondata.Exists(graphname, parent, name, "y")) {
                    return makeNodeObject(name, "focusedChild", 
                        &model.Metadata{
                              Streaming: 1,
                              Position: &model.Position{
-                                    X: positiondata.S("Vizceral", parent, name, "x").Data().(float64),
-                                    Y: positiondata.S("Vizceral", parent, name, "y").Data().(float64),
+                                    X: positiondata.S(graphname, parent, name, "x").Data().(float64),
+                                    Y: positiondata.S(graphname, parent, name, "y").Data().(float64),
                              },
                         })
                              
