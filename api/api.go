@@ -150,8 +150,10 @@ func (h *handler) positionHandler(w http.ResponseWriter, r *http.Request) {
            parseJson, err := gabs.ParseJSON(body)
          
            if err != nil {
+
                 fmt.Print(err.Error())
                 http.Error(w, err.Error(), 500)
+
                 return
            }
            h.options.PositionFile.Mutex.Lock()
@@ -164,6 +166,8 @@ func (h *handler) positionHandler(w http.ResponseWriter, r *http.Request) {
 
                http.Error(w, err.Error(), 500)
                file.Close()
+
+               return
            }
 
            fmt.Fprintln(file, h.options.PositionFile.PositionData.StringIndent("", "  "))
@@ -177,15 +181,19 @@ func (h *handler) positionHandler(w http.ResponseWriter, r *http.Request) {
 
            body, err := ioutil.ReadAll(r.Body)
            if err != nil {
+
                 http.Error(w, err.Error(), 400)
+
                 return
            }
 
            parseJson, err := gabs.ParseJSON(body)
          
            if err != nil {
+
                 fmt.Print(err.Error())
                 http.Error(w, err.Error(), 400)
+
                 return
            }
 
@@ -195,6 +203,7 @@ func (h *handler) positionHandler(w http.ResponseWriter, r *http.Request) {
 
                 fmt.Print(err.Error())
                 http.Error(w, err.Error(), 400)
+
                 return
            }
            
